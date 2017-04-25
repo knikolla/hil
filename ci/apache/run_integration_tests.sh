@@ -10,7 +10,7 @@ haas create_admin_user $HAAS_USERNAME $HAAS_PASSWORD
 cd $TRAVIS_BUILD_DIR
 
 # Test commands
-py.test tests/integration/cli.py
+py.test tests/integration/client.py
 
 # Test dbinit script
 python examples/dbinit.py
