@@ -1,8 +1,12 @@
+"""Stress tests.
 
-from haas.test_common import config_testsuite, fresh_database, config_merge, \
-    fail_on_log_warnings
-from haas import api, config, server, rest
-from haas.flaskapp import app
+Tests here are catch problems like resource leaks, that only become apparent
+after a certain amount of use.
+"""
+
+from hil.test_common import config_testsuite, fresh_database, config_merge, \
+    fail_on_log_warnings, server_init
+from hil import api, config, rest
 
 import json
 import pytest
@@ -10,21 +14,17 @@ import pytest
 
 @pytest.fixture
 def configure():
+    """Configure HIL"""
     config_testsuite()
     config_merge(
-            {'extensions': {'haas.ext.obm.ipmi': '', }, })
+            {'extensions': {'hil.ext.obm.ipmi': '', }, })
 
     config.load_extensions()
 
 
 fail_on_log_warnings = pytest.fixture(autouse=True)(fail_on_log_warnings)
 fresh_database = pytest.fixture(fresh_database)
-
-
-@pytest.fixture
-def server_init():
-    server.register_drivers()
-    server.validate_state()
+server_init = pytest.fixture(server_init)
 
 
 pytestmark = pytest.mark.usefixtures('configure',
@@ -86,7 +86,7 @@ def test_many_http_queries():
             # At least make sure the body parses:
             json.loads(resp.get_data())
 
-    for i in range(100):
+    for _i in range(100):
         _show_nodes('/nodes/free')
         resp = client.get('/projects')
         assert resp.status_code == 200

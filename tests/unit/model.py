@@ -21,10 +21,11 @@
 # some point, which is definitely wrong. The test_repr methods are there just
 # to make sure it isn't throwing an exception.
 
-from haas.model import *
-from haas import config
+from hil.model import Node, Nic, Project, Headnode, Hnic, Network, \
+    NetworkingAction, Metadata
+from hil import config
 
-from haas.test_common import fresh_database, config_testsuite, ModelTest, \
+from hil.test_common import fresh_database, config_testsuite, ModelTest, \
     fail_on_log_warnings
 import pytest
 
@@ -33,6 +34,7 @@ fail_on_log_warnings = pytest.fixture(autouse=True)(fail_on_log_warnings)
 
 @pytest.fixture
 def configure():
+    """Configure HIL."""
     config_testsuite()
     config.load_extensions()
 
@@ -44,9 +46,10 @@ pytestmark = pytest.mark.usefixtures('configure', 'fresh_database')
 
 
 class TestNic(ModelTest):
+    """ModelTest for Nic objects."""
 
     def sample_obj(self):
-        from haas.ext.obm.ipmi import Ipmi
+        from hil.ext.obm.ipmi import Ipmi
         return Nic(Node(label='node-99',
                         obm=Ipmi(type=Ipmi.api_name,
                                  host="ipmihost",
@@ -56,9 +59,10 @@ class TestNic(ModelTest):
 
 
 class TestNode(ModelTest):
+    """ModelTest for Node objects."""
 
     def sample_obj(self):
-        from haas.ext.obm.ipmi import Ipmi
+        from hil.ext.obm.ipmi import Ipmi
         return Node(label='node-99',
                     obm=Ipmi(type=Ipmi.api_name,
                              host="ipmihost",
@@ -67,12 +71,14 @@ class TestNode(ModelTest):
 
 
 class TestProject(ModelTest):
+    """ModelTest for Project objects."""
 
     def sample_obj(self):
         return Project('manhattan')
 
 
 class TestHeadnode(ModelTest):
+    """ModelTest for Headnode objects."""
 
     def sample_obj(self):
         return Headnode(Project('anvil-nextgen'),
@@ -80,6 +86,7 @@ class TestHeadnode(ModelTest):
 
 
 class TestHnic(ModelTest):
+    """ModelTest for Hnic objects."""
 
     def sample_obj(self):
         return Hnic(Headnode(Project('anvil-nextgen'),
@@ -88,6 +95,7 @@ class TestHnic(ModelTest):
 
 
 class TestNetwork(ModelTest):
+    """ModelTest for Network objects."""
 
     def sample_obj(self):
         pj = Project('anvil-nextgen')
@@ -95,9 +103,10 @@ class TestNetwork(ModelTest):
 
 
 class TestMetadata(ModelTest):
+    """ModelTest for Metadata objects."""
 
     def sample_obj(self):
-        from haas.ext.obm.ipmi import Ipmi
+        from hil.ext.obm.ipmi import Ipmi
         node = Node(label='node-99',
                     obm=Ipmi(type=Ipmi.api_name,
                              host="ipmihost",
@@ -107,9 +116,10 @@ class TestMetadata(ModelTest):
 
 
 class TestNetworkingAction(ModelTest):
+    """ModelTest for NetworkingAction objects."""
 
     def sample_obj(self):
-        from haas.ext.obm.ipmi import Ipmi
+        from hil.ext.obm.ipmi import Ipmi
         nic = Nic(Node(label='node-99',
                        obm=Ipmi(type=Ipmi.api_name,
                                 host="ipmihost",

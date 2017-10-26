@@ -1,6 +1,66 @@
-# REST API
+# Overview
 
-This file documents the HaaS REST API in detail.
+This file describes the HIL Api. We first describe the main objects,
+then users and security model, and finally provide a full reference for
+the API.
+
+## Objects in the HIL
+
+* project - a grouping of resources (e.g., headnodes, nodes, networks).
+* node - a physical node.  Either unallocated or belongs to a project.  Has
+  one or more NICs attached to it.
+* headnode - a controlling machine for a project, today a VM, assigned to one
+  project
+* NIC - network card, identified by a user-specified label (e.g., PXE, ipmi,
+  user1, silly) will have a visible ethernet mac address (or equivalent unique
+  number for other network types), and is always part of one node and
+  connected to at most one port.
+* HNIC - headnode network card, identified by a user-specified label (e.g.,
+  PXE, ipmi, user1, silly), and is always part of one headnode.
+* port - a port to which NICs can be connected.  Only visible to admins.
+* network - a network, today implemented as a VLAN, that NICs and HNICs can be
+  connected to.  See networks.md for more details.
+
+The authentication system is pluggable. Authentication mechanisms are
+provided by extensions (see `extensions.md`), but the rules about who is
+allowed to access what are dictated by HIL core. Operations etiher
+require administratie priilieges, or access to a particular project.
+
+Of note, "users" are not a concept that HIL core understands, though
+some of the individual auth extensions do.
+
+## API design philosophy
+
+We provide the most basic API that we can, and attempt to impose no structure
+that is not required for authorization purposes.
+
+- A 'project' is merely an authorization domain.  It is reasonable to have
+  logically independent groupings of resources within one project, but the
+  HIL will not help you create such a structure.  Policies like this belong
+  in higher-level tools built on top of the hil.
+
+- We considered having a mechanism for staging a large number of networking
+  changes and performing them all-together, and even potentially allowing
+  roll-back.  Instead, we simply have API calls to connect a NIC to a network,
+  and to disconnect it.  All other functionalities can be built on top of
+  this.
+
+There is no garbage-collection of objects.  If an object is being used
+somehow, it cannot be deleted.  For example, if a node is on a network, the
+user can neither de-allocate the node nor delete the network.  They must first
+detach the node from the network.  (The one exception to this is that, when
+deleting a headnode, all of its HNICs are deleted with it.  This is due to a
+technical limitation---we cannot currently dynamically add and remove HNICs.)
+
+Most objects are identified by "labels" that are globally unique, e.g., nodes,
+networks, groups, users, headnodes.  While we may eventually change this, it
+seems a reasonable limitation for now that simplifies the implementation and
+will allow potential sharing of resources. The system will return an error if
+a second user tries to create an object with an already existing label. The
+one exception is NICs, where the label is unique only on a per-node
+basis.
+
+# API Reference
 
 ## How to read
 
@@ -20,7 +80,7 @@ Each possible API call has an entry below containing:
  In general, administrative access is sufficient to perform any action.
 * A list of possible errors.
 
-In addition to the error codes listed for each API call, HaaS may
+In addition to the error codes listed for each API call, HIL may
 return:
 
 * 400 if something is wrong with the request (e.g. malformed request
@@ -75,7 +135,7 @@ Possible errors:
 
 ## Core API Specification
 
-API calls provided by the HaaS core. These are present in all
+API calls provided by the HIL core. These are present in all
 installations.
 
 ### Networks
@@ -140,6 +200,7 @@ The result must contain the following fields:
 * "owner", the name of the project which created the network, or
   "admin", if it was created by an administrator.
 * "access", a list of projects that have access to the network or null if the network is public
+* "connected-nodes": nodes and list of nics connected to network
 
 Response body (on success):
 
@@ -148,6 +209,7 @@ Response body (on success):
         "channels": <chanel-id-list>,
         "owner": <project or "admin">,
         "access": <project(s) with access to the network/null>
+        "connected-nodes": {"<node>": [<list of nics connected to network]}
     }
 
 Authorization requirements:
@@ -155,6 +217,8 @@ Authorization requirements:
 * If the network is public, no special access is required.
 * Otherwise, access to a project in the "access" list or
 administrative access is required.
+* Admins and network owners can see all nodes connected to network; other users
+only see connected nodes that they have access to.
 
 #### Channel Formats
 
@@ -189,15 +253,17 @@ The response must contain the following fields:
 * "projects", a list of projects with access to the network or 'None' if network is public
 
 Example Response:
-	{
-		"netA": {
-			"network_id": "101",
-			"projects": ["qproj-01", qproj-02"]
-			},
-		"netB": {
-			"network_id": "102",
-			"projects": None}
-	}
+
+    {
+        "netA": {
+            "network_id": "101",
+            "projects": ["qproj-01", qproj-02"]
+        },
+        "netB": {
+            "network_id": "102",
+            "projects": None
+        }
+    }
 
 Authorization requirements:
 
@@ -220,18 +286,19 @@ of the attached node and second level keys being:
 * "project", the name of the project which owns the attached node
 
 Example Response:
-	{
-		"node1": {
-			 "nic": "nic1",
-			 "channel" "vlan/native",
-			 "project": "projectA"
-			 },
-		"node2": {
-			 "nic": "nic2",
-			 "channel": "vlan/235",
-			 "project": "projectB"
-			 }
-	}
+
+    {
+        "node1": {
+             "nic": "nic1",
+             "channel" "vlan/native",
+             "project": "projectA"
+        },
+        "node2": {
+             "nic": "nic2",
+             "channel": "vlan/235",
+             "project": "projectB"
+        }
+    }
 
 Authorization requirements:
 
@@ -345,17 +412,22 @@ Possible Errors:
 Register a node with OBM of <type> and optional metadata
 
 <type> (a string) is the type of OBM. The possible value depends on what drivers
-HaaS is configured to use. The remainder of the field are driver-specific;
+HIL is configured to use. The remainder of the field are driver-specific;
 see the documentation of the OBM driver in question (read `docs/obm-drivers.md`).
 
 `PUT /node/<node>`
 
 Request Body:
-	{"obm": { "type": <obm-subtype>,
-		<additional sub-type specific values>}
-	 "metadata": {"label_1": "value_1",
-	 	     "label_2": "value_2"} (Optional)
-	}
+
+    {
+        "obm": {
+            "type": <obm-subtype>, <additional sub-type specific values>
+        },
+        "metadata": { (Optional)
+            "label_1": "value_1",
+            "label_2": "value_2"
+        }
+    }
 
 example provided in USING.rst
 
@@ -390,7 +462,7 @@ Request Body:
     }
 
 Register a nic named `<nic>` belonging to `<node>`. `<mac_addr>` should
-be the nic's mac address. This isn't used by HaaS itself, but is useful
+be the nic's mac address. This isn't used by HIL itself, but is useful
 for users trying to configure their nodes.
 
 Authorization requirements:
@@ -415,21 +487,39 @@ Authorization requirements:
 
 `POST /node/<node>/power_cycle`
 
+Request Body:
+
+    {
+        "force": <boolean> (Optional, defaults to False)
+    }
+
 Power cycle the node named `<node>`, and set it's next boot device to
 PXE. If the node is powered off, this turns it on.
+
+Accepts one optional boolean argument that determines whether to soft (default)
+or hard reboot the system.
+
+Authorization requirements:
+
+* Access to the project to which `<node>` is assigned (if any) or administrative access.
 
 #### node_set_bootdev
 
 `PUT /node/<node>/boot_device`
 
-Sets the node's next boot device persistently
+Request body:
+
+    {
+        "bootdev": <boot device>
+    }
 
 The request body consists of JSON with a `bootdev` argument:
 
-Request body:
-    {
-    	"bootdev": <boot device>
-    }
+Sets the node's next boot device persistently
+
+Authorization requirements:
+
+* Access to the project to which `<node>` is assigned (if any) or administrative access.
 
 ##### For IPMI devices
 
@@ -437,7 +527,7 @@ The valid/allowed boot devices are:
 
 * pxe : do a pxe boot (network boot)
 * disk: boot from local hard disk
-* none: to reset boot order to default. 
+* none: to reset boot order to default.
 
 #### node_power_off
 
@@ -514,34 +604,84 @@ Show details of a node.
 Returns a JSON object representing a node.
 The object will have at least the following fields:
 
-        * "name", the name/label of the node (string).
-        * "project", the name of the project a node belongs to or null if the node does not belong to a project
-        * "nics", a list of nics, each represented by a JSON object having
-            at least the following fields:
+* "name", the name/label of the node (string).
+* "project", the name of the project a node belongs to or null if the node does not belong to a project
+* "nics", a list of nics, each represented by a JSON object having
+  at least the following fields:
 
-                - "label", the nic's label.
-                - "macaddr", the nic's mac address.
-		- "networks", a JSON object describing what networks are attached to the nic. The keys are channels and the values are the names of networks attached to those channels.
-	* "metadata", a dictionary of metadata objects
+    - "label", the nic's label.
+    - "macaddr", the nic's mac address.
+    - "networks", a JSON object describing what networks are attached to the nic. The keys are channels and the values are the names of networks attached to those channels.
+    - "port", the port to which the nic is connected to or
+      null if the nic
+      is not connected to any port. This field is only visibile if the
+      caller is an admin.
+    - "switch", the switch that has the port to which the nic is connected
+      to or null if the nic is not connected to any port. Just like port,
+      this is only visible if the caller is an admin.
+* "metadata", a dictionary of metadata objects
 
-Response body:
+Response body when run by a non-admin user:
 
-    {"name": "node1",
-	 "project": "project1",
-         "nics": [{"label": "nic1", 
-	 	   "macaddr": "01:23:45:67:89", 
-		   "networks": {"vlan/native": "pxe", "vlan/235": "storage"}},
-                  {"label": "nic2", 
-		   "macaddr": "12:34:56:78:90", 
-		   "networks":{"vlan/native": "public"}}],
-	 "metadata":{"EK":"pk"}
-	}
+    {
+        "metadata": {
+            "EK": "pk"
+        },
+        "name": "node1",
+        "nics": [
+            {
+                "label": "nic1",
+                "macaddr": "01:23:45:67:89",
+                "networks": {
+                    "vlan/235": "storage",
+                    "vlan/native": "pxe"
+                }
+            },
+            {
+                "label": "nic2",
+                "macaddr": "12:34:56:78:90",
+                "networks": {}
+            }
+        ],
+        "project": "project1"
+    }
+
+
+Response body when run by an admin:
+
+    {
+        "metadata": {
+            "EK": "pk"
+        },
+        "name": "node1",
+        "nics": [
+            {
+                "label": "nic1",
+                "macaddr": "01:23:45:67:89",
+                "networks": {
+                    "vlan/235": "storage",
+                    "vlan/native": "pxe"
+                },
+                "port": "gi1/0/1",
+                "switch": "dell-01"
+            },
+            {
+                "label": "nic2",
+                "macaddr": "12:34:56:78:90",
+                "networks": {},
+                "port": null,
+                "switch": null
+            }
+        ],
+        "project": "project1"
+    }
 
 Authorization requirements:
 
 * If the node is free, no special access is required.
 * Otherwise, access to the project to which `<node>` is assigned is
   required.
+* Admin acces to view port and switch information.
 
 ### Projects
 
@@ -623,7 +763,7 @@ Authorization requirements:
 
 `GET /projects`
 
-Return a list of all projects in HaaS
+Return a list of all projects in HIL
 
 Response body:
 
@@ -641,11 +781,11 @@ Authorization requirements:
 
 `PUT /node/<node>/metadata/<label>`
 
-Request Body: 
+Request Body:
 
-	{
-		"value": <value>
-	}	
+    {
+        "value": <value>
+    }
 
 Set metadata with `<label>` and `<value>` on `<node>`.
 
@@ -768,7 +908,7 @@ Connect the network named `<network>` to `<hnic>`.
 
 1. the headnode's project has the right to attach to, and
 2. was not assigned a specific network id by an administrator (i.e. the
-   network id was allocated dynamically by HaaS). This constraint is due
+   network id was allocated dynamically by HIL). This constraint is due
    to an implementation limitation, but will likely be lifted in the
    future; see issue #333.
 
@@ -777,7 +917,7 @@ Additionally, the headnode must not have previously been started.
 Note that, unlike nodes, headnodes may only be attached via the
 native/default channel (which is implicit, and may not be specified).
 
-Rationale: separating headnodes from haas core is planned, and it has
+Rationale: separating headnodes from hil core is planned, and it has
 been deemed not worth the development effort to adjust this prior to the
 separation. Additionally, headnodes may have an arbitrary number of
 nics, and so being able to attach two networks to the same nic is not as
@@ -839,6 +979,8 @@ Get information about a headnode. Includes the following fields:
 * "vncport", the vnc port that the headnode VM is listening on; this
     value can be `null` if the VM is powered off or has not been
     created yet.
+* "uuid", UUID for the headnode.
+* "base_img", the os image that the headnode is running.
 
 Response body:
 
@@ -846,7 +988,9 @@ Response body:
         "name": <headnode>,
         "project": <projectname>,
         "nics": [<nic1>, <nic2>, ...],
-        "vncport": <port number>
+        "vncport": <port number>,
+        "uuid": <headnode uuid>,
+        "base_img": <headnode base_img>
     }
 
 Authorization requirements:
@@ -882,7 +1026,7 @@ Authorization requirements:
 Register a network switch of type `<type>`
 
 `<type>` (a string) is the type of network switch. The possible values
-depend on what drivers HaaS is configured to use. The remainder of the
+depend on what drivers HIL is configured to use. The remainder of the
 fields are driver-specific; see the documentation for the driver in
 question (in `docs/network-drivers.md`.
 
@@ -924,7 +1068,7 @@ Possible Errors:
 
 `GET /switches`
 
-Return a list of all switches registered in HaaS
+Return a list of all switches registered in HIL
 
 Response body:
 
@@ -1024,12 +1168,57 @@ Possible errors:
 * 404, if there is no nic attached to `port`
 * 409, if there is already a networking action pending on `port`
 
+#### show_port
+
+`GET /switch/<switch>/port/<port>`
+
+Show the node and nic to which the port is connected.
+
+Response body:
+
+    {
+        "node": "mynode",
+        "nic": "mynic",
+        "networks": {"vlan/1511": "mynetwork"}
+    }
+
+If there is no nic attached to a port, the response body is just an empty
+json object:
+
+    {}
+
+Authorization requirements:
+
+* Administrative access.
+
+Possible errors:
+
+* 404, if the switch and/or port do not exist.
+
+#### list_active_extensions
+
+`GET /active_extensions`
+
+Response Body:
+
+[
+    "hil.ext.switches.mock",
+    "hil.ext.network_allocators.null",
+    ...
+]
+
+List all active extensions.
+
+Authorization requirements:
+
+* Administrative access.
+
 ## API Extensions
 
 API calls provided by specific extensions. They may not exist in all
 configurations.
 
-### The `haas.ext.auth.database` auth backend
+### The `hil.ext.auth.database` auth backend
 
 #### user_create
 
@@ -1061,6 +1250,28 @@ Delete the user whose username is `<username>`
 Authorization requirements:
 
 * Administrative access.
+
+#### user_set_admin
+
+'PATCH /auth/basic/user/<user>'
+
+Request Body:
+
+{
+    'is_admin': <boolean>
+}
+
+Set admin status of user '<user>' to true (admin user) or false (regular user)
+
+Authorization requirements:
+
+* Administrative access.
+
+Possible errors:
+
+* 404, if the user does not exist.
+
+* 409, if the user tries to set own admin privilege
 
 #### user_add_project
 

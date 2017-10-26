@@ -25,20 +25,20 @@ Setting python virtual environment::
 
   virtualenv .venv
   source .venv/bin/activate
-  pip install -e .
+  pip install -e .[tests]
 
-Configure HaaS::
+Configure HIL::
 
-  cp examples/haas.cfg.dev-no-hardware haas.cfg 
+  cp examples/hil.cfg.dev-no-hardware hil.cfg
 
 
 Initialize database::
 
-  haas-admin db create
+  hil-admin db create
 
 Start server::
 
-  haas serve 5000
+  hil serve 5000
 
 
 From a separate terminal window::
@@ -51,9 +51,9 @@ From a separate terminal window::
 
 Testing the setup::
 
-  haas list_nodes all
+  hil list_nodes all
 
-If the above command reports an empty list. 
-HIL is successfully installed and ready for hacking. 
+If the above command reports an empty list.
+HIL is successfully installed and ready for hacking.
 
 

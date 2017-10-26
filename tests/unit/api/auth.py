@@ -10,15 +10,12 @@ the mix. They are still tested here, since they are important for security.
 
 import pytest
 import unittest
-from haas.flaskapp import app
-from haas import api, config, model, server, deferred
-from haas.model import db
-from haas.network_allocator import get_network_allocator
-from haas.auth import get_auth_backend
-from haas.errors import AuthorizationError, BadArgumentError, \
+from hil import api, config, model, deferred
+from hil.auth import get_auth_backend
+from hil.errors import AuthorizationError, BadArgumentError, \
     ProjectMismatchError, BlockedError
-from haas.test_common import config_testsuite, config_merge, fresh_database, \
-    with_request_context, additional_db, fail_on_log_warnings
+from hil.test_common import config_testsuite, config_merge, fresh_database, \
+    with_request_context, additional_db, fail_on_log_warnings, server_init
 
 MOCK_OBM_API_NAME = 'http://schema.massopencloud.org/haas/v0/obm/mock'
 MOCK_SWITCH_API_NAME = 'http://schema.massopencloud.org/haas/v0/switches/mock'
@@ -57,29 +54,25 @@ fail_on_log_warnings = pytest.fixture(autouse=True)(fail_on_log_warnings)
 
 @pytest.fixture
 def configure():
+    "Configure HIL"
     config_testsuite()
     config_merge({
         'extensions': {
-            'haas.ext.auth.mock': '',
+            'hil.ext.auth.mock': '',
 
             # This extension is enabled by default in the tests, so we need to
             # disable it explicitly:
-            'haas.ext.auth.null': None,
-            'haas.ext.switches.mock': '',
-            'haas.ext.obm.mock': ''
+            'hil.ext.auth.null': None,
+            'hil.ext.switches.mock': '',
+            'hil.ext.obm.mock': ''
         },
     })
     config.load_extensions()
 
 
-@pytest.fixture
-def server_init():
-    server.register_drivers()
-    server.validate_state()
-
-
 fresh_database = pytest.fixture(fresh_database)
 with_request_context = pytest.yield_fixture(with_request_context)
+server_init = pytest.fixture(server_init)
 
 
 pytestmark = pytest.mark.usefixtures('configure',
@@ -100,7 +93,7 @@ auth_call_params = [
     #
 
     # Legal Cases:
-    # Admin creates a public network internal to HaaS.
+    # Admin creates a public network internal to HIL.
     dict(fn=api.network_create,
          error=None,
          admin=True,
@@ -601,6 +594,11 @@ auth_call_params += [
 
 @pytest.mark.parametrize('kwargs', auth_call_params)
 def test_auth_call(kwargs):
+    """Call auth_call_test on our huge list of cases.
+
+    We use auth_call_test in a few other places, hence the separate wrapper
+    for the actual test case.
+    """
     return auth_call_test(**kwargs)
 
 
@@ -637,14 +635,16 @@ admin_calls = [
         'password': 'changeme',
     }),
     (api.switch_delete, ['empty-switch'], {}),
-    (api.switch_register_port, ['stock_switch_0', 'new_port'], {}),
+    (api.switch_register_port, ['stock_switch_0', 'gi1/0/13'], {}),
     (api.switch_delete_port, ['stock_switch_0', 'free_port_0'], {}),
     (api.port_connect_nic, ['stock_switch_0', 'free_port_0',
                             'free_node_0', 'boot-nic'], {}),
+    (api.show_port, ['stock_switch_0', 'free_port_0'], {}),
     (api.port_detach_nic, ['stock_switch_0', 'free_node_0_port'], {}),
     (api.node_set_metadata, ['free_node_0', 'EK', 'pk'], {}),
     (api.node_delete_metadata, ['runway_node_0', 'EK'], {}),
     (api.port_revert, ['stock_switch_0', 'free_node_0_port'], {}),
+    (api.list_active_extensions, [], {}),
 ]
 
 
@@ -681,6 +681,7 @@ project_calls = [
 
 @pytest.mark.parametrize('fn,args,kwargs', admin_calls)
 def test_admin_succeed(fn, args, kwargs):
+    """Verify that a call succeeds as admin."""
     auth_call_test(fn=fn,
                    error=None,
                    admin=True,
@@ -691,6 +692,7 @@ def test_admin_succeed(fn, args, kwargs):
 
 @pytest.mark.parametrize('fn,args,kwargs', admin_calls)
 def test_admin_fail(fn, args, kwargs):
+    """Verify that a call fails when not admin."""
     auth_call_test(fn=fn,
                    error=AuthorizationError,
                    admin=False,
@@ -701,6 +703,7 @@ def test_admin_fail(fn, args, kwargs):
 
 @pytest.mark.parametrize('fn,args,kwargs', project_calls)
 def test_runway_succeed(fn, args, kwargs):
+    """Verify that a call succeeds when run as the 'runway' project."""
     auth_call_test(fn=fn,
                    error=None,
                    admin=False,
@@ -711,6 +714,7 @@ def test_runway_succeed(fn, args, kwargs):
 
 @pytest.mark.parametrize('fn,args,kwargs', project_calls)
 def test_manhattan_fail(fn, args, kwargs):
+    """Verify that a call fails when run as the 'manhattan' project."""
     auth_call_test(fn=fn,
                    error=AuthorizationError,
                    admin=False,
@@ -720,24 +724,38 @@ def test_manhattan_fail(fn, args, kwargs):
 
 
 class Test_node_detach_network(unittest.TestCase):
+    """Test authorization properties of node_detach_network."""
 
     def setUp(self):
+        """Common setup for the tests.
+
+        * node 'manhattan_node_0' is attached to network 'stock_int_pub', via
+          'boot-nic'.
+
+        This also sets some properties for easy access to the projects.
+        """
         self.auth_backend = get_auth_backend()
         self.runway = model.Project.query.filter_by(label='runway').one()
         self.manhattan = model.Project.query.filter_by(label='manhattan').one()
+
+        # The individual tests set the right project, but we need this to
+        # connect the network during setup:
         self.auth_backend.set_project(self.manhattan)
+
         api.node_connect_network('manhattan_node_0',
                                  'boot-nic',
                                  'stock_int_pub')
         deferred.apply_networking()
 
     def test_success(self):
+        """Project 'manhattan' can detach its own node."""
         self.auth_backend.set_project(self.manhattan)
         api.node_detach_network('manhattan_node_0',
                                 'boot-nic',
                                 'stock_int_pub')
 
     def test_wrong_project(self):
+        """Project 'runway' cannot detach "manhattan"'s node."""
         self.auth_backend.set_project(self.runway)
         with pytest.raises(AuthorizationError):
             api.node_detach_network('manhattan_node_0',

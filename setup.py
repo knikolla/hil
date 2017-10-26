@@ -12,6 +12,8 @@
 # express or implied.  See the License for the specific language
 # governing permissions and limitations under the License.
 
+# pylint: disable=missing-docstring
+
 from setuptools import setup, find_packages
 from os.path import dirname, join
 readme_file = 'README.rst'
@@ -21,11 +23,11 @@ def _get_readme():
     with open(join(dirname(__file__), readme_file)) as f:
         return f.read()
 
-setup(name='haas',
+setup(name='hil',
       version='0.2rc2',
-      maintainer='Developers of the HaaS Project at MOC',
-      maintainer_email='haas-dev-list@bu.edu',
-      url='https://github.com/CCI-MOC/haas',
+      maintainer='Developers of the HIL Project at MOC',
+      maintainer_email='hil@lists.massopen.cloud',
+      url='https://github.com/CCI-MOC/hil',
       description='A bare-metal isolation service that automates allocation '
                   'and management of non-virtualized compute resources across '
                   'mutually untrusting and incompatible provisioning systems.',
@@ -47,19 +49,21 @@ setup(name='haas',
 
       packages=find_packages(),
       # TODO: we should merge scripts into entry_points, below.
-      scripts=['scripts/haas', 'scripts/create_bridges'],
+      scripts=['scripts/hil', 'scripts/create_bridges'],
       entry_points={
-          'console_scripts': ['haas-admin=haas.commands.admin:main'],
+          'console_scripts': ['hil-admin=hil.commands.admin:main'],
       },
       package_data={
-          'haas': [
+          'hil': [
               'migrations/env.py',
               'migrations/alembic.ini',
               'migrations/script.py.mako',
               'migrations/versions/*.py',
           ],
-          'haas.ext.obm': ['migrations/*/*.py'],
-          'haas.ext.switches': ['migrations/*/*.py'],
+          'hil.ext.obm': ['migrations/*/*.py'],
+          'hil.ext.switches': ['migrations/*/*.py'],
+          'hil.ext.auth': ['migrations/*/*.py'],
+          'hil.ext.network_allocators': ['migrations/*/*.py']
       },
       zip_safe=False,  # migrations folder needs to be extracted to work.
 
@@ -93,11 +97,19 @@ setup(name='haas',
                         'passlib>=1.6.2,<2.0',
                         'pexpect>=3.3,<4.0',
                         'requests>=2.4.1,<3.0',
-                        'pytest>=2.6.2,<3.0',
-                        'pytest-catchlog>=1.2.2,<2.0',
-                        'pytest-cov>=1.8.0,<2.0',
-                        'pytest-xdist>=1.14,<2.0',
-                        'pep8>=1.7.0',
-                        'requests_mock>=1.0.0,<2.0',
                         'lxml>=3.6.0,<4.0',
-                        ])
+                        ],
+      extras_require={
+          'tests': [
+                'pytest>=3.0.0,<4.0',
+                'pytest-catchlog>=1.2.2,<2.0',
+                'pytest-cov>2.0,<3.0',
+                'pytest-xdist>=1.14,<2.0',
+                'pep8>=1.7.0',
+                'pylint>=1.6.0,<2.0',
+                'requests_mock>=1.0.0,<2.0',
+          ],
+          'postgres': ['psycopg2>=2.7,<3.0'],
+          'keystone-auth-backend': ['keystonemiddleware>=4.17,<5.0'],
+          'keystone-client': ['python-keystoneclient>=3.13,<4.0'],
+      })

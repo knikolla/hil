@@ -14,18 +14,18 @@
 
 """Unit tests for ipmi.py"""
 import pytest
-import haas
-from haas import model, server, api
-from haas.test_common import config, config_testsuite, fresh_database, \
-    fail_on_log_warnings, with_request_context, config_merge
+from hil import api, errors
+from hil.test_common import config, config_testsuite, fresh_database, \
+    fail_on_log_warnings, with_request_context, config_merge, server_init
 
 
 @pytest.fixture
 def configure():
+    """Configure HIL."""
     config_testsuite()
     config_merge({
         'extensions': {
-            'haas.ext.obm.ipmi': ''
+            'hil.ext.obm.ipmi': ''
         },
         'devel': {
            'dry_run': None
@@ -37,12 +37,8 @@ def configure():
 fresh_database = pytest.fixture(fresh_database)
 fail_on_log_warnings = pytest.fixture(fail_on_log_warnings)
 with_request_context = pytest.yield_fixture(with_request_context)
+server_init = pytest.fixture(server_init)
 
-
-@pytest.fixture
-def server_init():
-    server.register_drivers()
-    server.validate_state()
 
 default_fixtures = ['fail_on_log_warnings',
                     'configure',
@@ -66,16 +62,21 @@ class TestIpmi:
                   "password": "tapeworm"})
 
         # throw BadArgumentError for an invalid bootdevice
-        with pytest.raises(api.BadArgumentError):
+        with pytest.raises(errors.BadArgumentError):
             api.node_set_bootdev('node-99', 'invalid-device')
 
     def test_require_legal_bootdev(self):
-        from haas.ext.obm import ipmi
+        """Test the require_legal_bootdev method.
+
+        Try a valid and an invalid bootdev, and make sure it does the right
+        thing.
+        """
+        from hil.ext.obm import ipmi
         instance = ipmi.Ipmi(
                   host="ipmihost",
                   user="root",
                   password="tapeworm")
         instance.require_legal_bootdev("none")
 
-        with pytest.raises(api.BadArgumentError):
+        with pytest.raises(errors.BadArgumentError):
             instance.require_legal_bootdev("not_valid_bootdev")

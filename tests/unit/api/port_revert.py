@@ -1,30 +1,32 @@
+"""Test the port_revert api call."""
 import unittest
 import pytest
-from haas.test_common import \
+from hil.test_common import \
     config_testsuite, config_merge, fail_on_log_warnings, \
     initial_db, newDB, releaseDB
-from haas import api, config, deferred, model
-from haas.flaskapp import app
+from hil import api, config, deferred, model, errors
+from hil.flaskapp import app
 
 
 class Test_port_revert(unittest.TestCase):
+    """TestCase for port_revert."""
 
     def setUp(self):
-        from haas.ext.switches.mock import LOCAL_STATE
+        from hil.ext.switches.mock import LOCAL_STATE
         self.LOCAL_STATE = LOCAL_STATE
         fail_on_log_warnings()
 
-        # Configure HaaS:
+        # Configure HIL:
         config_testsuite()
         config_merge({
             'extensions': {
-                'haas.ext.switches.mock': '',
-                'haas.ext.obm.ipmi': '',
-                'haas.ext.obm.mock': '',
-                'haas.ext.network_allocators.null': None,
-                'haas.ext.network_allocators.vlan_pool': '',
+                'hil.ext.switches.mock': '',
+                'hil.ext.obm.ipmi': '',
+                'hil.ext.obm.mock': '',
+                'hil.ext.network_allocators.null': None,
+                'hil.ext.network_allocators.vlan_pool': '',
             },
-            'haas.ext.network_allocators.vlan_pool': {
+            'hil.ext.network_allocators.vlan_pool': {
                 'vlans': '100-200',
             },
         })
@@ -44,13 +46,15 @@ class Test_port_revert(unittest.TestCase):
         releaseDB()
 
     def test_no_nic(self):
-        with pytest.raises(api.NotFoundError):
+        """port_revert on a port with no nic should raise not found."""
+        with pytest.raises(errors.NotFoundError):
             # free_port_0 is not attached to a nic.
             api.port_revert('stock_switch_0', 'free_port_0')
         deferred.apply_networking()
         assert self.LOCAL_STATE['stock_switch_0']['free_port_0'] == {}
 
     def test_one_network(self):
+        """Test port_revert on a port attached to one network."""
         api.node_connect_network('runway_node_0',
                                  'nic-with-port',
                                  'runway_pxe',
@@ -78,6 +82,7 @@ class Test_port_revert(unittest.TestCase):
         )
 
     def test_two_networks(self):
+        """Test port_revert on a port attached to two networks."""
         pxe_net_id = model.Network.query.filter_by(label='runway_pxe')\
             .one().network_id
         pub_net_id = model.Network.query.filter_by(label='stock_int_pub')\

@@ -1,3 +1,4 @@
+.DS_Store
 *.swp
 *.pyc
 *.~
@@ -8,7 +9,8 @@ dist
 .venv
 .coverage
 *.db
-/haas.cfg
+/hil.cfg
 /testsuite.cfg
 /site-layout.json
 /.cache
+hil.log
